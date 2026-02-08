@@ -1,0 +1,88 @@
+1. Prep the laptop and hardware
+   - Install Python 3.10+ (64-bit), Git, and VS Code. On Windows enable the "Add python.exe to PATH" option; on Linux/macOS also install Tk support (for example: sudo apt install python3-tk) so the Tk GUI in emg_app/app.py can launch.
+   - Install the latest Arduino IDE and USB drivers for your board (Arduino UNO/Nano drivers ship with the IDE; many Nanos use the CH340 driver). Confirm Device Manager (Windows) or ls /dev/tty* (Linux/macOS) shows the board when plugged in.
+   - For live MIDI output install a virtual MIDI loopback (loopMIDI on Windows, IAC Driver on macOS, aconnect/ttl or similar on Linux) before running the processing tools.
+   - Optional: install GitHub Desktop or set up the GitHub CLI (gh auth login) if you plan to pull updates frequently.
+
+2. Get the project onto the machine
+   - Open a terminal and clone the repository: git clone https://github.com/<your-org>/GRIP_EMG_Harmonics_Project.git
+   - cd GRIP_EMG_Harmonics_Project and open VS Code here (code .) so paths like ArduinoEMGSignalLoop/ArduinoEMGSignalLoop.ino resolve correctly.
+
+3. Create a clean Python environment and install dependencies
+   - Create and activate a virtual environment:
+     Windows: py -3 -m venv .venv   &&   .venv\Scripts\activate
+     macOS/Linux: python3 -m venv .venv   &&   source .venv/bin/activate
+   - Upgrade tooling: python -m pip install --upgrade pip setuptools wheel
+   - Install runtime libraries: pip install -r requirements.txt (matplotlib, pyserial, pyqtgraph, PySide6, mido, python-rtmidi, pytest)
+   - Keep the environment activated whenever you run project scripts; configure VS Code to use .venv if desired.
+
+4. Flash the Arduino firmware so the PC receives EMG data
+   - Launch the Arduino IDE and open ArduinoEMGSignalLoop/ArduinoEMGSignalLoop.ino
+   - Select Tools → Board (Arduino Uno or your device) and the correct COM/tty port.
+   - Upload. The sketch samples A0 at 1 kHz and prints one integer per line; the onboard LED toggles above a threshold for a visual check.
+   - For multi-channel bench testing, flash hardware/arduino_emg_debug/arduino_emg_debug.ino to stream t_ms plus A0-A5 CSV data at ~250 Hz.
+   - After flashing, briefly open the Serial Monitor to confirm numbers, then close it so Python can claim the port.
+
+Code for Arduino:
+// Minimal EMG → Serial bridge for GRIP_EMG_Harmonics_Project.
+// Samples A0, prints raw ADC counts at 115200 baud.
+
+const uint8_t EMG_PIN = A0;
+const uint32_t SAMPLE_RATE_HZ = 1000;           // 1 kHz
+const uint32_t SAMPLE_INTERVAL_US = 1000000UL / SAMPLE_RATE_HZ;
+const uint16_t LED_THRESHOLD = 520;             // tweak or remove as needed
+
+void setup() {
+    pinMode(LED_BUILTIN, OUTPUT);
+    Serial.begin(115200);                        // must match Python
+    while (!Serial) { /* wait for USB CDC */ }
+}
+
+void loop() {
+    static uint32_t lastSampleUs = micros();
+    const uint32_t nowUs = micros();
+
+    if ((int32_t)(nowUs - lastSampleUs) >= (int32_t)SAMPLE_INTERVAL_US) {
+        lastSampleUs += SAMPLE_INTERVAL_US;
+
+        const int raw = analogRead(EMG_PIN);      // 0–1023 on Uno
+        Serial.println(raw);                      // or Serial.print(millis()); Serial.print(','); Serial.println(raw);
+
+        digitalWrite(LED_BUILTIN, raw > LED_THRESHOLD ? HIGH : LOW);
+    }
+}
+
+5. Connect sensors and verify serial data
+   - Wire your EMG amplifier output to A0 (and other analog pins if using the multi-channel sketch), sharing ground with the Arduino.
+   - Power the amplifier, plug the Arduino into USB, and note the COM/tty name (for example COM5 or /dev/ttyACM0).
+   - Optional sanity check: python Grip_Project_Test.py (set PORT_OVERRIDE at the top if auto-detect fails) for a live Matplotlib plotter.
+
+6. Run the multi-device Tk GUI
+   - In the activated environment run: python -m emg_app.main (entry point in emg_app/app.py and emg_app/main.py).
+   - Connections tab (emg_app/ui_connections.py):
+     • Refresh Ports → Add Device → pick board type/port/baud (115200 default) and enable pins with muscle labels.
+     • Select a device and click Connect to spawn the serial worker defined in emg_app/serial_io.py.
+   - Calibration tab (emg_app/ui_calibration.py):
+     • Choose a target and click Calibrate Selected. emg_app/calibration.py collects baseline and MVC envelopes, writes calibration_log.json, and displays live %MVC.
+     • Use Export Calibrations to save CSV snapshots.
+   - Raw Data tab logs latest sample per channel and can export CSV snapshots.
+   - Processing tab (emg_app/ui_processing.py) runs EMGProcessor from emg_app/processing_core.py, displays MIDI-normalized values, and can send CC output after selecting a MIDI port. Use Set Rest/Set Max to override calibration ranges if needed.
+   - Close via the window controls; on_close() stops workers so ports release cleanly.
+
+7. Use the standalone PySide6 processing page when you want a dedicated view
+   - Edit PORT_OVERRIDE/BAUD_RATE at the top of emg_app/processing_page.py if auto-detect is unsuitable.
+   - Launch with python -m emg_app.processing_page. This PySide6/pyqtgraph UI mirrors the calibration buttons, shows fast plots, and can output MIDI (select a port and click Connect MIDI).
+   - Ensure no other app is using the serial port simultaneously; close the Tk app before starting the PySide6 window (and vice versa).
+
+8. Run automated tests to confirm the setup
+   - With the virtual environment active run pytest. The suite in tests/ exercises calibration math, serial parsing, and UI helpers using the CSV fixtures in that folder.
+
+9. Manage presets, logs, and exports
+   - Save/Load device layouts via the Connections tab; files follow the schema shown in ArduinoPreset.json and Arduino Uno Setup.json.
+   - Calibration runs append to calibration_log.json; archive or version this file if multiple users share the laptop.
+   - Use the various "Save ... Snapshot" buttons to capture raw or calibration data for later analysis (CSV format).
+
+10. Optional next steps for any new machine
+   - Add VS Code tasks/launch configs for one-click python -m emg_app.main execution.
+   - Verify external DAWs or synths receive MIDI CC #1 from the processing tab or PySide window via your chosen virtual MIDI port.
+   - Document the COM port naming scheme of the laptop so future users can quickly update presets, and keep a note of the .venv activation command.

@@ -1,0 +1,7 @@
+matplotlib
+mido
+pyqtgraph
+PySide6
+pyserial
+python-rtmidi
+pytest

@@ -1,0 +1,29 @@
+# Fresh Environment Run Instructions
+
+1. Clone the project and enter it:
+   git clone https://github.com/<your-org>/GRIP_EMG_Harmonics_Project.git
+   cd GRIP_EMG_Harmonics_Project
+
+2. Create and activate a virtual environment:
+   # Windows PowerShell
+   py -3 -m venv .venv
+   .venv\Scripts\Activate.ps1
+
+   # macOS/Linux
+   python3 -m venv .venv
+   source .venv/bin/activate
+
+3. Install all Python dependencies:
+   python -m pip install --upgrade pip setuptools wheel
+   pip install -r requirements.txt
+
+4. (Optional) Run the automated tests to verify the setup:
+   pytest
+
+5. Launch the Tk-based EMG app:
+   python -m emg_app.main
+
+6. (Optional) Launch the standalone PySide6 processing window instead of the Tk app:
+   python -m emg_app.processing_page
+
+Keep the virtual environment activated in the terminal session whenever you run project commands so the installed libraries remain available.
