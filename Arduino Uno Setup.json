@@ -1,0 +1,42 @@
+{
+  "devices": [
+    {
+      "device_type": "Arduino Uno",
+      "port": "COM3",
+      "baud": 115200,
+      "body_part": "upper limb",
+      "channels": {
+        "A0": {
+          "enabled": false,
+          "muscle": "",
+          "notes": ""
+        },
+        "A1": {
+          "enabled": false,
+          "muscle": "",
+          "notes": ""
+        },
+        "A2": {
+          "enabled": false,
+          "muscle": "",
+          "notes": ""
+        },
+        "A3": {
+          "enabled": false,
+          "muscle": "",
+          "notes": ""
+        },
+        "A4": {
+          "enabled": false,
+          "muscle": "",
+          "notes": ""
+        },
+        "A5": {
+          "enabled": false,
+          "muscle": "",
+          "notes": ""
+        }
+      }
+    }
+  ]
+}

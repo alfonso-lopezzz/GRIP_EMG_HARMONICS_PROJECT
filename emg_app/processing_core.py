@@ -1,0 +1,190 @@
+"""Shared EMG processing primitives and MIDI helpers."""
+
+from __future__ import annotations
+
+import time
+from collections import deque
+from statistics import mean, median
+from typing import Deque, List, Optional, Sequence, Tuple
+
+try:  # Optional dependency guard for runtime MIDI output
+    import mido
+    from mido import Message
+except Exception:  # pragma: no cover - handled at runtime
+    mido = None
+    Message = None
+
+# Processing defaults
+DEFAULT_BAUD = 115200
+RAW_BUFFER_SECONDS = 12.0
+BASELINE_TAU_SEC = 3.0
+ENVELOPE_ALPHA = 0.12
+MIDI_SMOOTH_ALPHA = 0.2
+MIDI_CC_NUMBER = 1
+MIDI_CHANNEL = 1
+MIDI_MAX_RATE_HZ = 100.0
+DEFAULT_REST_MIN = 50.0
+DEFAULT_MAX_CONTRACTION = 400.0
+CAPTURE_SECONDS = 1.5
+
+
+class EMGProcessor:
+    """Processes raw EMG samples into smoothed MIDI-ready activations."""
+
+    def __init__(
+        self,
+        baseline_tau_sec: float = BASELINE_TAU_SEC,
+        envelope_alpha: float = ENVELOPE_ALPHA,
+        midi_alpha: float = MIDI_SMOOTH_ALPHA,
+        rest_min: float = DEFAULT_REST_MIN,
+        max_contraction: float = DEFAULT_MAX_CONTRACTION,
+    ) -> None:
+        self.baseline_tau = baseline_tau_sec
+        self.envelope_alpha = envelope_alpha
+        self.midi_alpha = midi_alpha
+        self.rest_min = rest_min
+        self.max_contraction = max_contraction
+
+        self.baseline = 0.0
+        self.baseline_ready = False
+        self.prev_t_ms: Optional[int] = None
+        self.envelope = 0.0
+        self.midi_norm = 0.0
+        self.sample_rate_hz = 0.0
+        self._dt_window: Deque[int] = deque(maxlen=200)
+
+    def process(self, t_ms: int, raw: float) -> Tuple[float, float, int]:
+        """Return (raw_value, envelope_value, midi_cc)."""
+        if self.prev_t_ms is not None:
+            dt = max(1, t_ms - self.prev_t_ms)
+            self._dt_window.append(dt)
+            median_dt = float(median(self._dt_window)) if self._dt_window else float(dt)
+            if median_dt > 0:
+                self.sample_rate_hz = 1000.0 / median_dt
+        self.prev_t_ms = t_ms
+
+        alpha = self._compute_alpha(self.baseline_tau)
+        if not self.baseline_ready:
+            self.baseline = float(raw)
+            self.baseline_ready = True
+        else:
+            self.baseline = (1.0 - alpha) * self.baseline + alpha * float(raw)
+
+        highpassed = float(raw) - self.baseline
+        rectified = abs(highpassed)
+        self.envelope = (1.0 - self.envelope_alpha) * self.envelope + self.envelope_alpha * rectified
+
+        norm = self._normalize(self.envelope)
+        self.midi_norm = self._apply_midi_smoothing(norm)
+        midi_int = int(round(self.midi_norm * 127.0))
+        midi_int = max(0, min(127, midi_int))
+        return float(raw), self.envelope, midi_int
+
+    def set_rest(self, samples: Sequence[float]) -> None:
+        if samples:
+            self.rest_min = float(_percentile(samples, 10.0))
+
+    def set_max(self, samples: Sequence[float]) -> None:
+        if samples:
+            self.max_contraction = float(_percentile(samples, 90.0))
+
+    def _normalize(self, value: float) -> float:
+        lo = min(self.rest_min, self.max_contraction)
+        hi = max(self.rest_min, self.max_contraction)
+        clamped = min(hi, max(lo, value))
+        if hi - lo <= 1e-6:
+            return 0.0
+        return (clamped - lo) / (hi - lo)
+
+    def _compute_alpha(self, tau: float) -> float:
+        if not self._dt_window:
+            return 0.01
+        mean_dt = mean(self._dt_window) / 1000.0
+        if mean_dt <= 0.0:
+            return 0.01
+        return min(1.0, mean_dt / max(tau, 1e-3))
+
+    def _apply_midi_smoothing(self, norm: float) -> float:
+        if norm <= 0.0:
+            return 0.0
+        if norm >= 1.0:
+            return 1.0
+        alpha = min(1.0, max(0.0, self.midi_alpha))
+        return (1.0 - alpha) * self.midi_norm + alpha * norm
+
+
+class MidiController:
+    """Thin wrapper over mido for rate-limited CC output."""
+
+    def __init__(
+        self,
+        cc_number: int = MIDI_CC_NUMBER,
+        channel: int = MIDI_CHANNEL,
+        max_rate_hz: float = MIDI_MAX_RATE_HZ,
+    ) -> None:
+        self.cc_number = cc_number
+        self.channel = max(1, min(16, channel)) - 1
+        self.max_rate_hz = max_rate_hz
+        self._last_send_time = 0.0
+        self._last_value = -1
+        self.port: Optional[object] = None
+
+    def list_ports(self) -> List[str]:
+        self._ensure_mido()
+        return list(mido.get_output_names())
+
+    def open(self, name: str) -> None:
+        self._ensure_mido()
+        if self.port:
+            try:
+                self.port.close()
+            except Exception:
+                pass
+        self.port = mido.open_output(name)
+
+    def close(self) -> None:
+        if self.port:
+            try:
+                self.port.close()
+            except Exception:
+                pass
+        self.port = None
+
+    def send(self, value: int) -> bool:
+        if not self.port:
+            return False
+        value = max(0, min(127, int(value)))
+        now = time.time()
+        if value == self._last_value:
+            return False
+        if (now - self._last_send_time) < (1.0 / self.max_rate_hz):
+            return False
+        self._ensure_mido()
+        msg = Message("control_change", control=self.cc_number, value=value, channel=self.channel)
+        try:
+            self.port.send(msg)
+        except Exception:
+            return False
+        self._last_send_time = now
+        self._last_value = value
+        return True
+
+    def _ensure_mido(self) -> None:
+        if mido is None or Message is None:
+            raise RuntimeError(
+                "MIDI support requires the 'mido' and 'python-rtmidi' packages. Install them to enable this feature."
+            )
+
+
+def _percentile(values: Sequence[float], pct: float) -> float:
+    if not values:
+        return 0.0
+    vals = sorted(float(v) for v in values)
+    if len(vals) == 1:
+        return vals[0]
+    clip = min(100.0, max(0.0, pct)) / 100.0
+    pos = clip * (len(vals) - 1)
+    lo = int(pos)
+    hi = min(len(vals) - 1, lo + 1)
+    frac = pos - lo
+    return vals[lo] * (1 - frac) + vals[hi] * frac

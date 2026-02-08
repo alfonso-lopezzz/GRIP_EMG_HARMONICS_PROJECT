@@ -1,0 +1,213 @@
+"""Serial helpers that communicate with the EMG hardware."""
+
+from __future__ import annotations
+
+import math
+import queue
+import statistics
+import threading
+import time
+from collections import deque
+from typing import Deque, Dict, List, Optional, Tuple
+
+import serial
+
+from .constants import DEFAULT_VREF_VOLTS, PINS, RMS_WINDOW_SECONDS
+from .models import DeviceConfig
+
+
+def compute_rms(values: List[float]) -> float:
+	if not values:
+		return 0.0
+	return math.sqrt(sum(v * v for v in values) / len(values))
+
+
+PIN_INDEX = {pin: idx for idx, pin in enumerate(PINS)}
+
+
+class EMGStreamState:
+	"""Holds rolling buffers for raw samples and RMS envelopes."""
+
+	def __init__(self, maxlen: int = 5000):
+		self.maxlen = maxlen
+		self.raw: Dict[str, Deque[Tuple[int, float]]] = {
+			p: deque(maxlen=maxlen) for p in PINS
+		}
+		self.envelope: Dict[str, Deque[Tuple[int, float]]] = {
+			p: deque(maxlen=maxlen) for p in PINS
+		}
+		self.fs_est_hz: float = 0.0
+		self._last_t_ms: Optional[int] = None
+		self._dt_ms_window: Deque[int] = deque(maxlen=200)
+
+	def update_fs_estimate(self, t_ms: int) -> None:
+		if self._last_t_ms is not None:
+			dt = t_ms - self._last_t_ms
+			if dt > 0:
+				self._dt_ms_window.append(dt)
+				med_dt = statistics.median(self._dt_ms_window) if self._dt_ms_window else dt
+				self.fs_est_hz = 1000.0 / med_dt
+		self._last_t_ms = t_ms
+
+
+class SerialDeviceWorker(threading.Thread):
+	"""Reads CSV lines from serial and updates the shared stream state."""
+
+	def __init__(self, cfg: DeviceConfig, stream_state: EMGStreamState, event_q: queue.Queue):
+		super().__init__(daemon=True)
+		self.cfg = cfg
+		self.stream_state = stream_state
+		self.event_q = event_q
+		self._stop = threading.Event()
+		self._ser: Optional[serial.Serial] = None
+		self._active_pins = [pin for pin, ch in cfg.channels.items() if ch.enabled]
+		if not self._active_pins:
+			self._active_pins = [PINS[0]]
+
+	def stop(self) -> None:
+		self._stop.set()
+		try:
+			if self._ser and self._ser.is_open:
+				self._ser.close()
+		except Exception:
+			pass
+
+	def run(self) -> None:  # noqa: D401 (thread loop)
+		"""Main thread loop."""
+
+		port = self.cfg.port
+		try:
+			self._ser = serial.Serial(port, self.cfg.baud, timeout=1)
+			time.sleep(2.0)
+			try:
+				self._ser.reset_input_buffer()
+			except Exception:
+				pass
+			self.event_q.put(("device_status", port, True, "connected"))
+		except Exception as exc:
+			self.event_q.put(("device_status", port, False, f"open error: {exc}"))
+			return
+
+		while not self._stop.is_set():
+			try:
+				line = self._ser.readline()
+				if not line:
+					continue
+				s = line.decode("utf-8", errors="replace").strip()
+				if not s:
+					continue
+
+				if s.lower().startswith("t_ms"):
+					continue
+
+				parts = s.split(",") if "," in s else None
+				if parts:
+					t_ms = self._handle_csv_payload(parts)
+				else:
+					t_ms = self._handle_single_value_payload(s)
+
+				if t_ms is not None:
+					self.event_q.put(("sample", port, t_ms))
+			except Exception as exc:  # assume serial failure
+				self.event_q.put(("device_status", port, False, f"read error: {exc}"))
+				break
+
+		try:
+			if self._ser and self._ser.is_open:
+				self._ser.close()
+		except Exception:
+			pass
+		self.event_q.put(("device_status", port, False, "disconnected"))
+
+	def _handle_csv_payload(self, parts: List[str]) -> Optional[int]:
+		if len(parts) < 2:
+			return None
+		try:
+			t_ms = int(parts[0])
+		except ValueError:
+			return None
+		self.stream_state.update_fs_estimate(t_ms)
+		updated_pins: List[str] = []
+		for pin in self._active_pins:
+			idx = 1 + PIN_INDEX[pin]
+			if idx >= len(parts):
+				continue
+			try:
+				value = float(parts[idx])
+			except ValueError:
+				continue
+			self.stream_state.raw[pin].append((t_ms, value))
+			updated_pins.append(pin)
+		if not updated_pins:
+			return None
+		self._update_envelopes(t_ms, updated_pins)
+		return t_ms
+
+	def _handle_single_value_payload(self, payload: str) -> Optional[int]:
+		value = self._parse_single_value(payload)
+		if value is None:
+			return None
+		t_ms = int(time.time() * 1000)
+		self.stream_state.update_fs_estimate(t_ms)
+		for pin in self._active_pins:
+			self.stream_state.raw[pin].append((t_ms, value))
+		self._update_envelopes(t_ms, self._active_pins)
+		return t_ms
+
+	@staticmethod
+	def _parse_single_value(payload: str) -> Optional[float]:
+		cleaned = payload.strip()
+		if not cleaned:
+			return None
+		try:
+			value = float(cleaned)
+		except ValueError:
+			return None
+		if ("." not in cleaned) and ("e" not in cleaned.lower()) and 0.0 <= value <= 1023.0:
+			return value * (DEFAULT_VREF_VOLTS / 1023.0)
+		return value
+
+	def _update_envelopes(self, t_ms: int, pins: List[str]) -> None:
+		fs = self.stream_state.fs_est_hz
+		if fs <= 0:
+			return
+		win_n = max(5, int(fs * RMS_WINDOW_SECONDS))
+		for pin in pins:
+			buf = self.stream_state.raw[pin]
+			if len(buf) < win_n:
+				continue
+			tail = list(buf)[-win_n:]
+			rect = [abs(float(v)) for (_, v) in tail]
+			rms = compute_rms(rect)
+			self.stream_state.envelope[pin].append((t_ms, rms))
+
+
+class DeviceManager:
+	"""Tracks workers per serial port and exposes stream states."""
+
+	def __init__(self):
+		self.streams: Dict[str, EMGStreamState] = {}
+		self.workers: Dict[str, SerialDeviceWorker] = {}
+		self.status: Dict[str, Tuple[bool, str]] = {}
+
+	def start_device(self, cfg: DeviceConfig, event_q: queue.Queue) -> None:
+		if cfg.port in self.workers:
+			return
+		stream = EMGStreamState(maxlen=8000)
+		self.streams[cfg.port] = stream
+		worker = SerialDeviceWorker(cfg=cfg, stream_state=stream, event_q=event_q)
+		self.workers[cfg.port] = worker
+		self.status[cfg.port] = (False, "starting")
+		worker.start()
+
+	def stop_device(self, port: str) -> None:
+		worker = self.workers.get(port)
+		if worker:
+			worker.stop()
+		self.workers.pop(port, None)
+		self.streams.pop(port, None)
+		self.status.pop(port, None)
+
+	def stop_all(self) -> None:
+		for port in list(self.workers.keys()):
+			self.stop_device(port)
