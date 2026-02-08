@@ -5,6 +5,8 @@ from __future__ import annotations
 from collections import deque
 from typing import Deque, Dict, List, Optional, Tuple
 
+import time
+
 import tkinter as tk
 from tkinter import messagebox, ttk
 
@@ -12,9 +14,13 @@ from .processing_core import (
     CAPTURE_SECONDS,
     EMGProcessor,
     MidiController,
+    MIDI_VALUE_MAX,
     RAW_BUFFER_SECONDS,
 )
 from .ui_plots import LivePlotWidget
+
+PROC_PLOT_Y_MAX = 130.0
+PROC_PLOT_WINDOW_SECONDS = 10.0
 
 
 class ProcessingTabMixin:
@@ -31,6 +37,8 @@ class ProcessingTabMixin:
         self.processing_readout_fs: ttk.Label | None = None
         self.processing_midi_combo: ttk.Combobox | None = None
         self.processing_midi_status: ttk.Label | None = None
+        self.processing_raw_table: ttk.Treeview | None = None
+        self.processing_proc_table: ttk.Treeview | None = None
 
         self.processing_processors: Dict[str, EMGProcessor] = {}
         self.processing_calibration_versions: Dict[str, float] = {}
@@ -43,6 +51,11 @@ class ProcessingTabMixin:
         self.processing_window_smoothing_alpha = 0.25
         self.processing_capture_buffers: Dict[str, Deque[float]] = {}
         self.processing_processed_history: Dict[str, Deque[Tuple[int, float]]] = {}
+        self.processing_value_window_sec = 1.0
+        self.processing_value_rows = 12
+        self.processing_last_value_emit = 0.0
+        self.processing_raw_values: Deque[Tuple[float, float]] = deque(maxlen=self.processing_value_rows)
+        self.processing_proc_values: Deque[Tuple[float, float]] = deque(maxlen=self.processing_value_rows)
 
         self.processing_midi = MidiController()
 
@@ -83,14 +96,31 @@ class ProcessingTabMixin:
         self.processing_max_lbl = ttk.Label(calib_frame, text="-")
         self.processing_max_lbl.pack(side="left")
 
+        values_frame = ttk.Frame(frame)
+        values_frame.pack(fill="x", pady=(0, 8))
+        raw_group = ttk.Labelframe(values_frame, text="Raw Output (1s Max)")
+        raw_group.pack(side="left", fill="x", expand=True, padx=(0, 8))
+        self.processing_raw_table = self._create_processing_value_table(raw_group, "Raw Max")
+        proc_group = ttk.Labelframe(values_frame, text="Processed Output (1s Max)")
+        proc_group.pack(side="left", fill="x", expand=True)
+        self.processing_proc_table = self._create_processing_value_table(proc_group, "Processed Max")
+
         plots = ttk.Frame(frame)
         plots.pack(fill="both", expand=True)
         raw_frame = ttk.Labelframe(plots, text="Raw A0 (0-1023)")
         raw_frame.pack(side="left", fill="both", expand=True, padx=(0, 8))
-        proc_frame = ttk.Labelframe(plots, text="Processed / MIDI (0-127)")
+        proc_frame = ttk.Labelframe(plots, text=f"Processed / MIDI (0-{int(PROC_PLOT_Y_MAX)})")
         proc_frame.pack(side="left", fill="both", expand=True)
-        self.processing_raw_plot = LivePlotWidget(raw_frame, title="Raw Signal", window_seconds=RAW_BUFFER_SECONDS)
-        self.processing_proc_plot = LivePlotWidget(proc_frame, title="Processed Signal", window_seconds=RAW_BUFFER_SECONDS)
+        self.processing_raw_plot = LivePlotWidget(
+            raw_frame,
+            title="Raw Signal",
+            window_seconds=PROC_PLOT_WINDOW_SECONDS,
+        )
+        self.processing_proc_plot = LivePlotWidget(
+            proc_frame,
+            title=f"Processed Signal (0-{int(PROC_PLOT_Y_MAX)})",
+            window_seconds=PROC_PLOT_WINDOW_SECONDS,
+        )
 
         readouts = ttk.Frame(frame)
         readouts.pack(fill="x", pady=(6, 0))
@@ -286,6 +316,7 @@ class ProcessingTabMixin:
         if self.processing_max_lbl:
             self.processing_max_lbl.config(text=f"{processor.max_contraction:.1f}")
 
+        self._update_processing_value_tables(data, processed_hist)
         self._update_processing_plots(port, pin, muscle, processed_hist)
         self.after(120, self._update_processing_tab)
 
@@ -297,13 +328,75 @@ class ProcessingTabMixin:
             raw_y_limits = (0.0, y_max)
 
         if self.processing_raw_plot:
-            times, values = self._gather_plot_points(port, pin, window_seconds=RAW_BUFFER_SECONDS)
+            times, values = self._gather_plot_points(port, pin, window_seconds=PROC_PLOT_WINDOW_SECONDS)
             subtitle = f"{port} {pin} ({muscle or 'muscle'})"
             self.processing_raw_plot.update(times, values, subtitle, y_limits=raw_y_limits)
         if self.processing_proc_plot:
-            times, values = self._convert_history(processed_hist, window_seconds=RAW_BUFFER_SECONDS)
+            times, values = self._convert_history(processed_hist, window_seconds=PROC_PLOT_WINDOW_SECONDS)
             subtitle = f"{port} {pin} MIDI"
-            self.processing_proc_plot.update(times, values, subtitle, y_limits=(0.0, 127.0))
+            midi_ticks = [0.0, 25.0, 50.0, 75.0, 100.0, PROC_PLOT_Y_MAX]
+            self.processing_proc_plot.update(
+                times,
+                values,
+                subtitle,
+                y_limits=(0.0, PROC_PLOT_Y_MAX),
+                y_ticks=midi_ticks,
+            )
+
+    def _create_processing_value_table(self, parent: ttk.Widget, value_header: str) -> ttk.Treeview:
+        columns = ("time", "value")
+        tree = ttk.Treeview(parent, columns=columns, show="headings", height=self.processing_value_rows)
+        tree.heading("time", text="Time")
+        tree.heading("value", text=value_header)
+        tree.column("time", anchor="center", width=100, stretch=True)
+        tree.column("value", anchor="center", width=80, stretch=True)
+        tree.pack(fill="both", expand=True, padx=6, pady=6)
+        return tree
+
+    def _render_processing_value_table(
+        self,
+        tree: Optional[ttk.Treeview],
+        history: Deque[Tuple[float, float]],
+    ) -> None:
+        if not tree:
+            return
+        for item in tree.get_children():
+            tree.delete(item)
+        for ts, value in reversed(history):
+            time_str = time.strftime("%H:%M:%S", time.localtime(ts))
+            tree.insert("", "end", values=(time_str, f"{value:.1f}"))
+
+    def _update_processing_value_tables(
+        self,
+        raw_data: List[Tuple[int, float]],
+        processed_hist: Deque[Tuple[int, float]],
+    ) -> None:
+        now = time.time()
+        if (now - self.processing_last_value_emit) < self.processing_value_window_sec:
+            return
+        self.processing_last_value_emit = now
+        window_ms = int(self.processing_value_window_sec * 1000)
+
+        raw_peak = None
+        if raw_data:
+            raw_cutoff = raw_data[-1][0] - window_ms
+            recent_raw = [float(val) for (t, val) in raw_data if t >= raw_cutoff]
+            if recent_raw:
+                raw_peak = max(recent_raw)
+
+        proc_peak = None
+        if processed_hist:
+            proc_cutoff = processed_hist[-1][0] - window_ms
+            recent_proc = [float(val) for (t, val) in processed_hist if t >= proc_cutoff]
+            if recent_proc:
+                proc_peak = max(recent_proc)
+
+        if raw_peak is not None:
+            self.processing_raw_values.append((now, raw_peak))
+            self._render_processing_value_table(self.processing_raw_table, self.processing_raw_values)
+        if proc_peak is not None:
+            self.processing_proc_values.append((now, proc_peak))
+            self._render_processing_value_table(self.processing_proc_table, self.processing_proc_values)
 
     def _convert_history(self, history: Deque[Tuple[int, float]], window_seconds: float) -> Tuple[List[float], List[float]]:
         if not history:
@@ -314,8 +407,7 @@ class ProcessingTabMixin:
         filtered = [(t, v) for (t, v) in data if t >= latest - window_ms]
         if not filtered:
             return [], []
-        base = filtered[0][0]
-        times = [(t - base) / 1000.0 for t, _ in filtered]
+        times = [t / 1000.0 for t, _ in filtered]
         values = [v for _, v in filtered]
         return times, values
 
@@ -340,15 +432,15 @@ class ProcessingTabMixin:
         env_rest = processor.rest_min
 
         if env_peak >= processor.max_contraction:
-            target = 127
+            target = MIDI_VALUE_MAX
         elif env_peak <= env_rest:
             target = 0
         else:
             norm = processor._normalize(env_peak)
-            target = int(round(max(0.0, min(1.0, norm)) * 127.0))
+            target = int(round(max(0.0, min(1.0, norm)) * float(MIDI_VALUE_MAX)))
 
         prev = self.processing_window_outputs.get(key, float(target))
-        if target in (0, 127):
+        if target in (0, MIDI_VALUE_MAX):
             smoothed = float(target)
         else:
             alpha = max(0.0, min(1.0, getattr(self, "processing_window_smoothing_alpha", 1.0)))

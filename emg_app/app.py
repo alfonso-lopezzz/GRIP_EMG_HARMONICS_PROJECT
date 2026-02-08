@@ -28,6 +28,7 @@ class EMGApp(tk.Tk, ConnectionsMixin, CalibrationTabMixin, ProcessingTabMixin):
 		self.calibration = CalibrationController(self.dev_mgr, self.event_q)
 		self.raw_tree: ttk.Treeview | None = None
 		self.raw_plot: LivePlotWidget | None = None
+		self._raw_log_last_sec: dict[str, int] = {}
 
 		self._init_connections_state()
 		self._init_calibration_state()
@@ -37,7 +38,7 @@ class EMGApp(tk.Tk, ConnectionsMixin, CalibrationTabMixin, ProcessingTabMixin):
 
 		self.after(100, self._poll_events)
 		self.after(200, self._update_live_views)
-		self.after(200, self._update_raw_data_table)
+		self.after(1000, self._update_raw_data_table)
 		self.after(150, self._update_live_plots)
 
 	def _build_ui(self) -> None:
@@ -166,44 +167,40 @@ class EMGApp(tk.Tk, ConnectionsMixin, CalibrationTabMixin, ProcessingTabMixin):
 			return
 
 		enabled_channels = list(self._iter_enabled_channels())
-		desired_ids = {item["iid"] for item in enabled_channels}
-		existing_ids = set(self.raw_tree.get_children(""))
-
-		for iid in existing_ids - desired_ids:
-			self.raw_tree.delete(iid)
-		for item in enabled_channels:
-			if item["iid"] not in existing_ids:
-				self.raw_tree.insert("", tk.END, iid=item["iid"], values=("", "", "", "", "", "", ""))
+		active_ids = {item["iid"] for item in enabled_channels}
+		for iid in list(self._raw_log_last_sec.keys()):
+			if iid not in active_ids:
+				self._raw_log_last_sec.pop(iid, None)
 
 		for item in enabled_channels:
 			port = item["port"]
 			pin = item["pin"]
 			muscle = item["muscle"]
 			body_part = item["body_part"]
-			latest_t = "-"
-			latest_raw = "-"
-			fs_display = "-"
 			stream = self.dev_mgr.streams.get(port)
-			if stream:
-				if stream.fs_est_hz > 0:
-					fs_display = f"{stream.fs_est_hz:.1f}"
-				buf = stream.raw.get(pin)
-				if buf:
-					t_ms, raw_val = buf[-1]
-					latest_t = str(t_ms)
-					latest_raw = str(raw_val)
+			if not stream:
+				continue
+			buf = stream.raw.get(pin)
+			if not buf:
+				continue
+			t_ms, raw_val = buf[-1]
+			second_bucket = int(t_ms // 1000)
+			if self._raw_log_last_sec.get(item["iid"]) == second_bucket:
+				continue
+			self._raw_log_last_sec[item["iid"]] = second_bucket
+			fs_display = f"{stream.fs_est_hz:.1f}" if stream.fs_est_hz > 0 else "-"
 			values = (
 				port,
 				pin,
 				muscle,
 				body_part,
-				latest_t,
-				latest_raw,
+				str(t_ms),
+				str(raw_val),
 				fs_display,
 			)
-			self.raw_tree.item(item["iid"], values=values)
+			self.raw_tree.insert("", 0, values=values)
 
-		self.after(200, self._update_raw_data_table)
+		self.after(1000, self._update_raw_data_table)
 
 	def _export_raw_snapshot(self) -> None:
 		channels = list(self._iter_enabled_channels())
@@ -357,8 +354,7 @@ class EMGApp(tk.Tk, ConnectionsMixin, CalibrationTabMixin, ProcessingTabMixin):
 		filtered = [(t, v) for (t, v) in data if t >= start]
 		if not filtered:
 			return [], []
-		base = filtered[0][0]
-		times = [(float(t) - float(base)) / 1000.0 for t, _ in filtered]
+		times = [float(t) / 1000.0 for t, _ in filtered]
 		values = [float(v) for _, v in filtered]
 		return times, values
 

@@ -7,13 +7,21 @@ from typing import List
 import tkinter as tk
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.figure import Figure
+from matplotlib.ticker import AutoLocator, FixedLocator
 
 
 class LivePlotWidget:
     """Embed a lightweight Matplotlib line plot inside a Tk container."""
 
-    def __init__(self, parent: tk.Widget, title: str, window_seconds: float = 10.0):
+    def __init__(
+        self,
+        parent: tk.Widget,
+        title: str,
+        window_seconds: float = 10.0,
+        fixed_window: bool = False,
+    ):
         self.window_seconds = window_seconds
+        self.fixed_window = fixed_window
         self.base_title = title
         self.figure = Figure(figsize=(6.0, 2.4), dpi=100)
         self.ax = self.figure.add_subplot(111)
@@ -33,17 +41,19 @@ class LivePlotWidget:
         values: List[float],
         subtitle: str = "",
         y_limits: tuple[float, float] | None = None,
+        y_ticks: List[float] | None = None,
     ) -> None:
         if not times or not values:
             self.line.set_data([], [])
             self.ax.set_xlim(0, self.window_seconds)
         else:
             self.line.set_data(times, values)
-            x_min = min(times)
-            x_max = max(times)
-            if x_max - x_min < 0.5:
-                x_max = max(self.window_seconds, x_max + 0.5)
-            self.ax.set_xlim(max(0.0, x_min), x_max)
+            if self.fixed_window:
+                self.ax.set_xlim(0, self.window_seconds)
+            else:
+                x_max = max(times)
+                x_min = max(0.0, x_max - self.window_seconds)
+                self.ax.set_xlim(x_min, x_max)
 
         if y_limits is not None:
             y_min, y_max = y_limits
@@ -57,6 +67,11 @@ class LivePlotWidget:
             self.ax.set_ylim(v_min - pad, v_max + pad)
         else:
             self.ax.set_ylim(0, 1)
+
+        if y_ticks is not None:
+            self.ax.yaxis.set_major_locator(FixedLocator(y_ticks))
+        else:
+            self.ax.yaxis.set_major_locator(AutoLocator())
 
         title = self.base_title if not subtitle else f"{self.base_title} — {subtitle}"
         self.ax.set_title(title)

@@ -23,6 +23,7 @@ MIDI_SMOOTH_ALPHA = 0.2
 MIDI_CC_NUMBER = 1
 MIDI_CHANNEL = 1
 MIDI_MAX_RATE_HZ = 100.0
+MIDI_VALUE_MAX = 127
 DEFAULT_REST_MIN = 50.0
 DEFAULT_MAX_CONTRACTION = 400.0
 CAPTURE_SECONDS = 1.5
@@ -49,9 +50,14 @@ class EMGProcessor:
         self.baseline_ready = False
         self.prev_t_ms: Optional[int] = None
         self.envelope = 0.0
+        self._ema_envelope = 0.0
         self.midi_norm = 0.0
         self.sample_rate_hz = 0.0
         self._dt_window: Deque[int] = deque(maxlen=200)
+        self._max_hold_interval_ms = 1000
+        self._window_start_ms: Optional[int] = None
+        self._window_peak_envelope = 0.0
+        self._last_emitted_envelope = 0.0
 
     def process(self, t_ms: int, raw: float) -> Tuple[float, float, int]:
         """Return (raw_value, envelope_value, midi_cc)."""
@@ -72,12 +78,13 @@ class EMGProcessor:
 
         highpassed = float(raw) - self.baseline
         rectified = abs(highpassed)
-        self.envelope = (1.0 - self.envelope_alpha) * self.envelope + self.envelope_alpha * rectified
+        self._ema_envelope = (1.0 - self.envelope_alpha) * self._ema_envelope + self.envelope_alpha * rectified
+        self.envelope = self._apply_max_hold(t_ms, self._ema_envelope)
 
         norm = self._normalize(self.envelope)
         self.midi_norm = self._apply_midi_smoothing(norm)
-        midi_int = int(round(self.midi_norm * 127.0))
-        midi_int = max(0, min(127, midi_int))
+        midi_int = int(round(self.midi_norm * float(MIDI_VALUE_MAX)))
+        midi_int = max(0, min(MIDI_VALUE_MAX, midi_int))
         return float(raw), self.envelope, midi_int
 
     def set_rest(self, samples: Sequence[float]) -> None:
@@ -111,6 +118,26 @@ class EMGProcessor:
             return 1.0
         alpha = min(1.0, max(0.0, self.midi_alpha))
         return (1.0 - alpha) * self.midi_norm + alpha * norm
+
+    def _apply_max_hold(self, t_ms: int, envelope: float) -> float:
+        """Hold the last 1s peak to reduce rapid graph swings."""
+        interval = self._max_hold_interval_ms
+        if interval <= 0:
+            self._last_emitted_envelope = envelope
+            return envelope
+        if self._window_start_ms is None:
+            self._window_start_ms = t_ms
+            self._window_peak_envelope = envelope
+            self._last_emitted_envelope = envelope
+            return envelope
+        if (t_ms - self._window_start_ms) >= interval:
+            emitted = self._window_peak_envelope
+            self._last_emitted_envelope = emitted
+            self._window_start_ms = t_ms
+            self._window_peak_envelope = envelope
+            return emitted
+        self._window_peak_envelope = max(self._window_peak_envelope, envelope)
+        return self._last_emitted_envelope
 
 
 class MidiController:
@@ -153,7 +180,7 @@ class MidiController:
     def send(self, value: int) -> bool:
         if not self.port:
             return False
-        value = max(0, min(127, int(value)))
+        value = max(0, min(MIDI_VALUE_MAX, int(value)))
         now = time.time()
         if value == self._last_value:
             return False

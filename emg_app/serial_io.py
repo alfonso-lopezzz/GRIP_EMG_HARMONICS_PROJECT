@@ -13,6 +13,8 @@ from typing import Deque, Dict, List, Optional, Tuple
 import serial
 
 from .constants import DEFAULT_VREF_VOLTS, PINS, RMS_WINDOW_SECONDS
+
+STREAM_MAXLEN = 20000  # generous cushion for 10+ seconds at high Fs
 from .models import DeviceConfig
 
 
@@ -28,7 +30,7 @@ PIN_INDEX = {pin: idx for idx, pin in enumerate(PINS)}
 class EMGStreamState:
 	"""Holds rolling buffers for raw samples and RMS envelopes."""
 
-	def __init__(self, maxlen: int = 5000):
+	def __init__(self, maxlen: int = STREAM_MAXLEN):
 		self.maxlen = maxlen
 		self.raw: Dict[str, Deque[Tuple[int, float]]] = {
 			p: deque(maxlen=maxlen) for p in PINS
@@ -193,7 +195,7 @@ class DeviceManager:
 	def start_device(self, cfg: DeviceConfig, event_q: queue.Queue) -> None:
 		if cfg.port in self.workers:
 			return
-		stream = EMGStreamState(maxlen=8000)
+		stream = EMGStreamState(maxlen=STREAM_MAXLEN)
 		self.streams[cfg.port] = stream
 		worker = SerialDeviceWorker(cfg=cfg, stream_state=stream, event_q=event_q)
 		self.workers[cfg.port] = worker
