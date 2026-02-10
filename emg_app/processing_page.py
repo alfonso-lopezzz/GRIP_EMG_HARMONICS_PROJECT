@@ -13,16 +13,9 @@ import serial
 from PySide6 import QtCore, QtWidgets
 from serial.tools import list_ports
 
-from .processing_core import (
-    CAPTURE_SECONDS,
-    EMGProcessor,
-    MidiController,
-    MIDI_VALUE_MAX,
-    MIDI_CC_NUMBER,
-    MIDI_CHANNEL,
-    MIDI_MAX_RATE_HZ,
-    RAW_BUFFER_SECONDS,
-)
+from .constants import CAPTURE_SECONDS, RAW_BUFFER_SECONDS
+from .midi_controller import MidiController, MIDI_CC_NUMBER, MIDI_CHANNEL, MIDI_MAX_RATE_HZ
+from .processing_core import EMGProcessor, MIDI_VALUE_MAX
 
 
 # ----------------------------- User settings ----------------------------- #

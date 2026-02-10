@@ -29,6 +29,7 @@ class EMGApp(tk.Tk, ConnectionsMixin, CalibrationTabMixin, ProcessingTabMixin):
 		self.raw_tree: ttk.Treeview | None = None
 		self.raw_plot: LivePlotWidget | None = None
 		self._raw_log_last_sec: dict[str, int] = {}
+		self._raw_row_seq = 0
 
 		self._init_connections_state()
 		self._init_calibration_state()
@@ -168,6 +169,11 @@ class EMGApp(tk.Tk, ConnectionsMixin, CalibrationTabMixin, ProcessingTabMixin):
 
 		enabled_channels = list(self._iter_enabled_channels())
 		active_ids = {item["iid"] for item in enabled_channels}
+		for iid in list(self.raw_tree.get_children("")):
+			tags = self.raw_tree.item(iid, "tags")
+			channel_tag = tags[0] if tags else None
+			if channel_tag not in active_ids:
+				self.raw_tree.delete(iid)
 		for iid in list(self._raw_log_last_sec.keys()):
 			if iid not in active_ids:
 				self._raw_log_last_sec.pop(iid, None)
@@ -198,7 +204,11 @@ class EMGApp(tk.Tk, ConnectionsMixin, CalibrationTabMixin, ProcessingTabMixin):
 				str(raw_val),
 				fs_display,
 			)
-			self.raw_tree.insert("", 0, values=values)
+			row_id = f"{item['iid']}::{t_ms}"
+			while self.raw_tree.exists(row_id):
+				self._raw_row_seq += 1
+				row_id = f"{item['iid']}::{t_ms}::{self._raw_row_seq}"
+			self.raw_tree.insert("", 0, iid=row_id, values=values, tags=(item["iid"],))
 
 		self.after(1000, self._update_raw_data_table)
 

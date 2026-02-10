@@ -119,8 +119,9 @@ def test_raw_data_table_updates_rows(test_app):
     stream.raw["A0"].append((1234, 789))
     test_app.dev_mgr.streams[cfg.port] = stream
     test_app._update_raw_data_table()
-    iid = f"{cfg.port} | A0"
-    row = test_app.raw_tree.item(iid)
+    rows = test_app.raw_tree.get_children("")
+    assert rows, "row history should contain latest sample"
+    row = test_app.raw_tree.item(rows[0])
     values = row["values"]
     assert values[0] == cfg.port
     assert values[1] == "A0"
@@ -136,11 +137,13 @@ def test_raw_data_table_removes_disabled_channels(test_app):
     stream.raw["A0"].append((50, 100))
     test_app.dev_mgr.streams[cfg.port] = stream
     test_app._update_raw_data_table()
-    iid = f"{cfg.port} | A0"
-    assert iid in test_app.raw_tree.get_children("")
+    channel_tag = f"{cfg.port} | A0"
+    tagged_rows = [iid for iid in test_app.raw_tree.get_children("") if channel_tag in test_app.raw_tree.item(iid, "tags")]
+    assert tagged_rows, "expected at least one row tagged for the channel"
     cfg.channels["A0"].enabled = False
     test_app._update_raw_data_table()
-    assert iid not in test_app.raw_tree.get_children("")
+    tagged_rows = [iid for iid in test_app.raw_tree.get_children("") if channel_tag in test_app.raw_tree.item(iid, "tags")]
+    assert not tagged_rows
 
 
 def test_calibrate_selected_target_runs_controller(monkeypatch, test_app):

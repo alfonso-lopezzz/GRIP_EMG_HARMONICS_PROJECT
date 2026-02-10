@@ -10,13 +10,9 @@ import time
 import tkinter as tk
 from tkinter import messagebox, ttk
 
-from .processing_core import (
-    CAPTURE_SECONDS,
-    EMGProcessor,
-    MidiController,
-    MIDI_VALUE_MAX,
-    RAW_BUFFER_SECONDS,
-)
+from .constants import CAPTURE_SECONDS, RAW_BUFFER_SECONDS
+from .midi_controller import MidiController
+from .processing_core import EMGProcessor, MIDI_VALUE_MAX
 from .ui_plots import LivePlotWidget
 
 PROC_PLOT_Y_MAX = 130.0
