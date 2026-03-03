@@ -41,15 +41,26 @@ class CalibrationTabMixin:
 		self.cal_status = ttk.Label(self.tab_calibration, text="Calibration status: -")
 		self.cal_status.pack(anchor="w", padx=10, pady=6)
 
+		cal_paned = tk.PanedWindow(self.tab_calibration, orient=tk.VERTICAL,
+			sashwidth=6, sashrelief="raised", bg="#cccccc")
+		cal_paned.pack(fill="both", expand=True, padx=10, pady=8)
+
+		tree_section = ttk.Frame(cal_paned)
+		cal_paned.add(tree_section, stretch="always", minsize=80)
 		cols = ("target", "muscle", "body_part", "baseline", "mvc", "last_%mvc")
-		self.cal_tree = ttk.Treeview(self.tab_calibration, columns=cols, show="headings", height=18)
+		self.cal_tree = ttk.Treeview(tree_section, columns=cols, show="headings", height=8)
 		for col in cols:
 			self.cal_tree.heading(col, text=col)
 			self.cal_tree.column(col, width=160 if col != "target" else 260)
-		self.cal_tree.pack(fill="both", expand=True, padx=10, pady=8)
+		self.cal_tree.pack(fill="both", expand=True)
 
-		plot_frame = ttk.Labelframe(self.tab_calibration, text="Live Signal Preview")
-		plot_frame.pack(fill="x", expand=False, padx=10, pady=(0, 10))
+		plot_h_paned = tk.PanedWindow(cal_paned, orient=tk.HORIZONTAL,
+			sashwidth=6, sashrelief="raised", bg="#cccccc")
+		cal_paned.add(plot_h_paned, stretch="always", minsize=120)
+		plot_frame = ttk.Labelframe(plot_h_paned, text="Live Signal Preview")
+		plot_h_paned.add(plot_frame, stretch="always", minsize=200)
+		plot_spacer = ttk.Frame(plot_h_paned, width=20)
+		plot_h_paned.add(plot_spacer, stretch="never")
 		self.cal_plot = LivePlotWidget(plot_frame, title="Calibration Signal", window_seconds=10.0)
 
 		self._refresh_targets()

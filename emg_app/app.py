@@ -80,8 +80,14 @@ class EMGApp(tk.Tk, ConnectionsMixin, CalibrationTabMixin, ProcessingTabMixin):
 			"raw_value",
 			"fs_est",
 		)
-		container = ttk.Frame(self.tab_raw_data)
-		container.pack(fill="both", expand=True, padx=10, pady=10)
+		paned = tk.PanedWindow(self.tab_raw_data, orient=tk.VERTICAL,
+			sashwidth=6, sashrelief="raised", bg="#cccccc")
+		paned.pack(fill="both", expand=True, padx=10, pady=10)
+
+		table_section = ttk.Frame(paned)
+		paned.add(table_section, stretch="always", minsize=80)
+		container = ttk.Frame(table_section)
+		container.pack(fill="both", expand=True)
 
 		scroll_y = ttk.Scrollbar(container, orient="vertical")
 		scroll_y.pack(side="right", fill="y")
@@ -90,7 +96,7 @@ class EMGApp(tk.Tk, ConnectionsMixin, CalibrationTabMixin, ProcessingTabMixin):
 			container,
 			columns=columns,
 			show="headings",
-			height=22,
+			height=10,
 			yscrollcommand=scroll_y.set,
 		)
 		self.raw_tree.pack(fill="both", expand=True)
@@ -118,8 +124,13 @@ class EMGApp(tk.Tk, ConnectionsMixin, CalibrationTabMixin, ProcessingTabMixin):
 			self.raw_tree.heading(col, text=headings[col])
 			self.raw_tree.column(col, width=widths[col], anchor="center")
 
-		plot_frame = ttk.Labelframe(self.tab_raw_data, text="Live Signal Preview")
-		plot_frame.pack(fill="x", expand=False, padx=10, pady=(0, 10))
+		plot_h_paned = tk.PanedWindow(paned, orient=tk.HORIZONTAL,
+			sashwidth=6, sashrelief="raised", bg="#cccccc")
+		paned.add(plot_h_paned, stretch="always", minsize=120)
+		plot_frame = ttk.Labelframe(plot_h_paned, text="Live Signal Preview")
+		plot_h_paned.add(plot_frame, stretch="always", minsize=200)
+		plot_spacer = ttk.Frame(plot_h_paned, width=20)
+		plot_h_paned.add(plot_spacer, stretch="never")
 		self.raw_plot = LivePlotWidget(plot_frame, title="Raw Data Signal", window_seconds=10.0)
 
 	def _build_stub_tabs(self) -> None:

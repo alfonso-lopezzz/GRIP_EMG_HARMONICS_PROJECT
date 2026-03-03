@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import List
 
 import tkinter as tk
+from tkinter import ttk
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.figure import Figure
 from matplotlib.ticker import AutoLocator, FixedLocator
@@ -23,6 +24,16 @@ class LivePlotWidget:
         self.window_seconds = window_seconds
         self.fixed_window = fixed_window
         self.base_title = title
+        self.plot_visible = True
+
+        self.container = ttk.Frame(parent)
+        self.container.pack(fill="both", expand=True)
+
+        toggle_bar = ttk.Frame(self.container)
+        toggle_bar.pack(fill="x", padx=4, pady=(4, 0))
+        self.toggle_button = ttk.Button(toggle_bar, text="Plot On/Off", command=self._toggle_plot_visibility)
+        self.toggle_button.pack(side="left")
+
         self.figure = Figure(figsize=(6.0, 2.4), dpi=100)
         self.ax = self.figure.add_subplot(111)
         self.ax.set_xlabel("Time (s)")
@@ -31,9 +42,17 @@ class LivePlotWidget:
         (self.line,) = self.ax.plot([], [], lw=1.5)
         self.ax.set_xlim(0, self.window_seconds)
         self.ax.set_ylim(0, 1)
-        self.canvas = FigureCanvasTkAgg(self.figure, master=parent)
+        self.figure.subplots_adjust(left=0.08, right=0.98, bottom=0.22, top=0.86)
+        self.canvas = FigureCanvasTkAgg(self.figure, master=self.container)
+        self._canvas_pack_opts = {
+            "fill": "both",
+            "expand": True,
+            "padx": 4,
+            "pady": 4,
+        }
+        self.canvas_widget = self.canvas.get_tk_widget()
+        self.canvas_widget.pack(**self._canvas_pack_opts)
         self.canvas.draw_idle()
-        self.canvas.get_tk_widget().pack(fill="x", expand=True, padx=4, pady=4)
 
     def update(
         self,
@@ -76,3 +95,11 @@ class LivePlotWidget:
         title = self.base_title if not subtitle else f"{self.base_title} — {subtitle}"
         self.ax.set_title(title)
         self.canvas.draw_idle()
+
+    def _toggle_plot_visibility(self) -> None:
+        self.plot_visible = not self.plot_visible
+        if self.plot_visible:
+            self.canvas_widget.pack(**self._canvas_pack_opts)
+            self.canvas.draw_idle()
+        else:
+            self.canvas_widget.pack_forget()
