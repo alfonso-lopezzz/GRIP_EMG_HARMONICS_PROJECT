@@ -13,11 +13,12 @@ from .calibration import CalibrationController
 from .serial_io import DeviceManager
 from .ui_calibration import CalibrationTabMixin
 from .ui_connections import ConnectionsMixin
+from .ui_midi import MidiTabMixin
 from .ui_plots import LivePlotWidget
 from .ui_processing import ProcessingTabMixin
 
 
-class EMGApp(tk.Tk, ConnectionsMixin, CalibrationTabMixin, ProcessingTabMixin):
+class EMGApp(tk.Tk, ConnectionsMixin, CalibrationTabMixin, ProcessingTabMixin, MidiTabMixin):
 	def __init__(self):
 		super().__init__()
 		self.title("EMG Multi-Device GUI (Connections + Calibration)")
@@ -34,6 +35,7 @@ class EMGApp(tk.Tk, ConnectionsMixin, CalibrationTabMixin, ProcessingTabMixin):
 		self._init_connections_state()
 		self._init_calibration_state()
 		self._init_processing_state()
+		self._init_midi_state()
 
 		self._build_ui()
 
@@ -56,14 +58,15 @@ class EMGApp(tk.Tk, ConnectionsMixin, CalibrationTabMixin, ProcessingTabMixin):
 		self.notebook.add(self.tab_connections, text="Connections")
 		self.notebook.add(self.tab_calibration, text="Calibration")
 		self.notebook.add(self.tab_raw_data, text="Raw Data")
-		self.notebook.add(self.tab_processing, text="Processing (stub)")
-		self.notebook.add(self.tab_plots, text="Plots (stub)")
-		self.notebook.add(self.tab_midi, text="MIDI (stub)")
+		self.notebook.add(self.tab_processing, text="Processing")
+		self.notebook.add(self.tab_plots, text="Plots")
+		self.notebook.add(self.tab_midi, text="MIDI")
 
 		self._build_connections_tab()
 		self._build_calibration_tab()
 		self._build_raw_data_tab()
 		self._build_processing_tab()
+		self._build_midi_tab()
 		self._build_stub_tabs()
 
 	def _build_raw_data_tab(self) -> None:
@@ -139,11 +142,6 @@ class EMGApp(tk.Tk, ConnectionsMixin, CalibrationTabMixin, ProcessingTabMixin):
 			text="Plots / Visualization page will be implemented next.",
 		).pack(anchor="w", padx=10, pady=10)
 
-		ttk.Label(
-			self.tab_midi,
-			text="MIDI / LoopMIDI routing will be implemented next.",
-		).pack(anchor="w", padx=10, pady=10)
-
 	def _poll_events(self) -> None:
 		try:
 			while True:
@@ -169,6 +167,11 @@ class EMGApp(tk.Tk, ConnectionsMixin, CalibrationTabMixin, ProcessingTabMixin):
 		if hasattr(self, "processing_midi"):
 			try:
 				self.processing_midi.close()
+			except Exception:
+				pass
+		if hasattr(self, "midi_controller"):
+			try:
+				self.midi_controller.close()
 			except Exception:
 				pass
 		self.destroy()
