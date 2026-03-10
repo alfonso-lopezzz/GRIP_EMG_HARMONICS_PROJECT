@@ -18,6 +18,8 @@ class DeviceConfig:
 	baud: int
 	body_part: str
 	channels: Dict[str, ChannelConfig]  # pin -> ChannelConfig
+	connection_type: str = "Serial (USB/Wired)"   # Serial, BT Classic, or BLE
+	ble_service_uuid: str = ""                     # optional custom BLE UART service UUID
 
 
 @dataclass(frozen=True)
