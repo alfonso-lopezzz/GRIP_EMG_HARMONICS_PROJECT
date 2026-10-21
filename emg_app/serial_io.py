@@ -168,6 +168,21 @@ class SerialDeviceWorker(_PayloadParserMixin, threading.Thread):
 		if not self._active_pins:
 			self._active_pins = [PINS[0]]
 
+	@staticmethod
+	def _format_open_error(port: str, exc: Exception) -> str:
+		message = str(exc).lower()
+		if isinstance(exc, PermissionError) or "access is denied" in message or "permission" in message:
+			return (
+				f"{port} is already open in another app or process. "
+				"Close the port in Arduino IDE, Serial Monitor, or another Python process, then try again."
+			)
+		if "in use" in message or "busy" in message or "already open" in message:
+			return (
+				f"{port} is already open in another app. "
+				"Close that connection and retry."
+			)
+		return f"open error: {exc}"
+
 	def stop(self) -> None:
 		self._stop.set()
 		try:
@@ -189,7 +204,7 @@ class SerialDeviceWorker(_PayloadParserMixin, threading.Thread):
 				pass
 			self.event_q.put(("device_status", port, True, "connected"))
 		except Exception as exc:
-			self.event_q.put(("device_status", port, False, f"open error: {exc}"))
+			self.event_q.put(("device_status", port, False, self._format_open_error(port, exc)))
 			return
 
 		while not self._stop.is_set():
@@ -304,7 +319,21 @@ class DeviceManager:
 		self.workers: Dict[str, threading.Thread] = {}  # SerialDeviceWorker | BLEDeviceWorker
 		self.status: Dict[str, Tuple[bool, str]] = {}
 
+	def prune_dead_workers(self, port: Optional[str] = None) -> None:
+		"""Remove stale worker entries that already exited, allowing reconnect attempts."""
+		ports = [port] if port is not None else list(self.workers.keys())
+		for current_port in ports:
+			worker = self.workers.get(current_port)
+			if worker is None:
+				continue
+			if worker.is_alive():
+				continue
+			self.workers.pop(current_port, None)
+			self.streams.pop(current_port, None)
+			self.status.pop(current_port, None)
+
 	def start_device(self, cfg: DeviceConfig, event_q: queue.Queue) -> None:
+		self.prune_dead_workers(cfg.port)
 		if cfg.port in self.workers:
 			return
 		stream = EMGStreamState(maxlen=STREAM_MAXLEN)

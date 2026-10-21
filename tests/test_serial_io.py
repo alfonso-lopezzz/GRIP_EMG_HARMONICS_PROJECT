@@ -198,6 +198,51 @@ def test_device_manager_stop_all(monkeypatch, device_config):
     assert mgr.status == {}
 
 
+def test_device_manager_prunes_dead_workers(device_config):
+    class FakeWorker:
+        def __init__(self):
+            self.stopped = False
+
+        def is_alive(self):
+            return False
+
+        def stop(self):
+            self.stopped = True
+
+    mgr = serial_io.DeviceManager()
+    mgr.workers[device_config.port] = FakeWorker()
+    mgr.streams[device_config.port] = object()
+    mgr.status[device_config.port] = (False, "open error")
+
+    mgr.prune_dead_workers(device_config.port)
+
+    assert device_config.port not in mgr.workers
+    assert device_config.port not in mgr.streams
+    assert device_config.port not in mgr.status
+
+
+def test_serial_worker_reports_permission_lock(monkeypatch, device_config):
+    def raise_permission_error(*_args, **_kwargs):
+        raise PermissionError("Access is denied.")
+
+    monkeypatch.setattr(serial_io.serial, "Serial", raise_permission_error)
+
+    stream = serial_io.EMGStreamState(maxlen=64)
+    event_q = queue.Queue()
+    worker = serial_io.SerialDeviceWorker(cfg=device_config, stream_state=stream, event_q=event_q)
+    worker.run()
+
+    events = []
+    while True:
+        try:
+            events.append(event_q.get_nowait())
+        except queue.Empty:
+            break
+
+    assert any("already open" in str(ev[3]).lower() for ev in events if ev[0] == "device_status")
+    assert any("close" in str(ev[3]).lower() for ev in events if ev[0] == "device_status")
+
+
 def test_worker_and_calibration_pipeline(monkeypatch, device_config):
     class FakeSerial:
         def __init__(self, lines):

@@ -150,7 +150,10 @@ class EMGApp(tk.Tk, ConnectionsMixin, CalibrationTabMixin, ProcessingTabMixin, M
 
 				if etype == "device_status":
 					_, port, ok, msg = event
+					self.dev_mgr.prune_dead_workers(port)
 					self.dev_mgr.status[port] = (bool(ok), str(msg))
+					if not ok:
+						self.dev_mgr.prune_dead_workers(port)
 					self._render_device_details()
 
 				elif etype == "cal_status":

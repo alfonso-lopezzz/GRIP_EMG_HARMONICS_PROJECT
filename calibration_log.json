@@ -609,6 +609,166 @@
       "device_type": "Arduino Uno",
       "port": "COM3",
       "pin": "A0"
+    },
+    {
+      "baseline": 40.0,
+      "mvc": 400.0,
+      "ts_unix": 1773177653.683992,
+      "body_part": "test",
+      "muscle": "(unnamed muscle)",
+      "device_type": "Arduino Uno",
+      "port": "COM_TEST",
+      "pin": "A0"
+    },
+    {
+      "baseline": 40.0,
+      "mvc": 400.0,
+      "ts_unix": 1773177919.261923,
+      "body_part": "test",
+      "muscle": "(unnamed muscle)",
+      "device_type": "Arduino Uno",
+      "port": "COM_TEST",
+      "pin": "A0"
+    },
+    {
+      "baseline": 40.0,
+      "mvc": 400.0,
+      "ts_unix": 1773179680.7943485,
+      "body_part": "test",
+      "muscle": "(unnamed muscle)",
+      "device_type": "Arduino Uno",
+      "port": "COM_TEST",
+      "pin": "A0"
+    },
+    {
+      "baseline": 40.0,
+      "mvc": 400.0,
+      "ts_unix": 1773179754.1937423,
+      "body_part": "test",
+      "muscle": "(unnamed muscle)",
+      "device_type": "Arduino Uno",
+      "port": "COM_TEST",
+      "pin": "A0"
+    },
+    {
+      "baseline": 40.0,
+      "mvc": 400.0,
+      "ts_unix": 1773179983.5703194,
+      "body_part": "test",
+      "muscle": "(unnamed muscle)",
+      "device_type": "Arduino Uno",
+      "port": "COM_TEST",
+      "pin": "A0"
+    },
+    {
+      "baseline": 40.0,
+      "mvc": 400.0,
+      "ts_unix": 1773680229.6436799,
+      "body_part": "test",
+      "muscle": "(unnamed muscle)",
+      "device_type": "Arduino Uno",
+      "port": "COM_TEST",
+      "pin": "A0"
+    },
+    {
+      "baseline": 40.0,
+      "mvc": 400.0,
+      "ts_unix": 1792607648.9994936,
+      "body_part": "test",
+      "muscle": "(unnamed muscle)",
+      "device_type": "Arduino Uno",
+      "port": "COM_TEST",
+      "pin": "A0"
+    },
+    {
+      "baseline": 40.0,
+      "mvc": 400.0,
+      "ts_unix": 1792607679.6020393,
+      "body_part": "test",
+      "muscle": "(unnamed muscle)",
+      "device_type": "Arduino Uno",
+      "port": "COM_TEST",
+      "pin": "A0"
+    },
+    {
+      "baseline": 0.6165661043009885,
+      "mvc": 3.224235523458311,
+      "ts_unix": 1792607818.3133764,
+      "body_part": "upper limb",
+      "muscle": "bicep",
+      "device_type": "Arduino Uno",
+      "port": "COM4",
+      "pin": "A0"
+    },
+    {
+      "baseline": 40.0,
+      "mvc": 400.0,
+      "ts_unix": 1792607959.1627295,
+      "body_part": "test",
+      "muscle": "(unnamed muscle)",
+      "device_type": "Arduino Uno",
+      "port": "COM_TEST",
+      "pin": "A0"
+    },
+    {
+      "baseline": 40.0,
+      "mvc": 400.0,
+      "ts_unix": 1792607970.3486247,
+      "body_part": "test",
+      "muscle": "(unnamed muscle)",
+      "device_type": "Arduino Uno",
+      "port": "COM_TEST",
+      "pin": "A0"
+    },
+    {
+      "baseline": 0.6039554242579488,
+      "mvc": 3.0241073609414224,
+      "ts_unix": 1792609031.2277856,
+      "body_part": "upper limb",
+      "muscle": "Bicep",
+      "device_type": "Arduino Uno",
+      "port": "COM4",
+      "pin": "A0"
+    },
+    {
+      "baseline": 0.6949868571051907,
+      "mvc": 1.9175801059393314,
+      "ts_unix": 1792609049.2041407,
+      "body_part": "upper limb",
+      "muscle": "Bicep",
+      "device_type": "Arduino Uno",
+      "port": "COM4",
+      "pin": "A0"
+    },
+    {
+      "baseline": 0.2125678295553644,
+      "mvc": 2.87758511715629,
+      "ts_unix": 1792609059.8784325,
+      "body_part": "upper limb",
+      "muscle": "Bicep",
+      "device_type": "Arduino Uno",
+      "port": "COM4",
+      "pin": "A0"
+    },
+    {
+      "baseline": 0.6284043817506916,
+      "mvc": 2.551210731609396,
+      "ts_unix": 1792609072.2818334,
+      "body_part": "upper limb",
+      "muscle": "Bicep",
+      "device_type": "Arduino Uno",
+      "port": "COM4",
+      "pin": "A0"
+    },
+    {
+      "baseline": 0.1167314387317077,
+      "mvc": 2.8255069678212004,
+      "ts_unix": 1792609511.8915508,
+      "body_part": "upper limb",
+      "muscle": "Bicep",
+      "device_type": "Arduino Uno",
+      "port": "COM4",
+      "pin": "A0"
     }
   ]
 }
